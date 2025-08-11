@@ -11,8 +11,10 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@supabase/supabase-js": "^2.54.0",
     "cors": "^2.8.5",
     "express": "^5.1.0",
+    "formidable": "^3.5.4",
     "node-fetch": "^2.7.0",
     "nodemon": "^3.1.10"
   }
