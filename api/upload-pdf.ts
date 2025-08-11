@@ -1,9 +1,9 @@
-import { createClient } from "@supabase/supabase-js";
 import { IncomingForm } from "formidable";
+import { createClient } from "@supabase/supabase-js";
 
 export const config = {
   api: {
-    bodyParser: false, // Disables Next.js default body parser for file upload
+    bodyParser: false, // disable Next.js body parsing
   },
 };
 
@@ -23,45 +23,43 @@ export default async function handler(req, res) {
   form.parse(req, async (err, fields, files) => {
     if (err) {
       console.error("Form parse error:", err);
-      return res.status(500).json({ error: "Form parsing failed" });
+      return res.status(500).json({ error: "Failed to parse form" });
     }
 
-    const sessionId = fields.sessionId;
-    const file = files.file;
+    try {
+      const file = files.file;
+      const sessionId = fields.sessionId;
 
-    if (!sessionId || !file) {
-      return res.status(400).json({ error: "Missing sessionId or file" });
+      if (!file || !sessionId) {
+        return res.status(400).json({ error: "Missing file or sessionId" });
+      }
+
+      // Read file buffer (formidable saves uploaded file to temp path)
+      const fs = require("fs");
+      const fileBuffer = fs.readFileSync(file.filepath);
+
+      const filePath = `${sessionId}/${file.originalFilename}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("ar-maturity-survey")
+        .upload(filePath, fileBuffer, {
+          cacheControl: "3600",
+          upsert: true,
+          contentType: file.mimetype,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: publicURLData, error: urlError } = supabase.storage
+        .from("ar-maturity-survey")
+        .getPublicUrl(filePath);
+
+      if (urlError) throw urlError;
+
+      res.status(200).json({ publicUrl: publicURLData.publicUrl });
+    } catch (uploadError) {
+      console.error(uploadError);
+      res.status(500).json({ error: uploadError.message });
     }
-
-    // Read file buffer from the uploaded file
-    const fs = require("fs");
-    const buffer = fs.readFileSync(file.filepath);
-
-    const filePath = `${sessionId}/${file.originalFilename}`;
-
-    // Upload buffer to Supabase storage
-    const { error } = await supabase.storage
-      .from("ar-maturity-survey")
-      .upload(filePath, buffer, {
-        cacheControl: "3600",
-        upsert: true,
-        contentType: "application/pdf",
-      });
-
-    if (error) {
-      console.error("Upload error:", error);
-      return res.status(500).json({ error: error.message });
-    }
-
-    // Get public URL
-    const { data: publicURLData, error: urlError } = supabase.storage
-      .from("ar-maturity-survey")
-      .getPublicUrl(filePath);
-
-    if (urlError || !publicURLData.publicUrl) {
-      return res.status(500).json({ error: "Failed to get public URL" });
-    }
-
-    return res.json({ publicUrl: publicURLData.publicUrl, filePath });
   });
 }
