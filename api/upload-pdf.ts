@@ -1,5 +1,22 @@
 import { IncomingForm } from "formidable";
 import { createClient } from "@supabase/supabase-js";
+import Cors from "cors";
+
+// Initialize CORS middleware
+const cors = Cors({
+  origin: ["https://growfin.ai", "http://localhost:5173"],
+  methods: ["POST", "GET"],
+});
+
+// Helper to run middleware in Next.js / Vercel
+function runMiddleware(req, res, fn) {
+  return new Promise((resolve, reject) => {
+    fn(req, res, (result) => {
+      if (result instanceof Error) return reject(result);
+      return resolve(result);
+    });
+  });
+}
 
 export const config = {
   api: {
@@ -13,6 +30,7 @@ const supabase = createClient(
 );
 
 export default async function handler(req, res) {
+  await runMiddleware(req, res, cors);
   if (req.method !== "POST") {
     res.setHeader("Allow", ["POST"]);
     return res.status(405).end(`Method ${req.method} Not Allowed`);
