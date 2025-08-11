@@ -1,28 +1,30 @@
 import { IncomingForm } from "formidable";
 import { createClient } from "@supabase/supabase-js";
 import Cors from "cors";
-import fs from "fs/promises"; // async fs
+import fs from "fs/promises";
 import path from "path";
 
-// Initialize CORS middleware
 const cors = Cors({
   origin: ["https://growfin.ai", "http://localhost:5173"],
   methods: ["POST", "OPTIONS"],
 });
 
-// Helper to run middleware (Next.js / Vercel)
 function runMiddleware(req: any, res: any, fn: any) {
   return new Promise((resolve, reject) => {
     fn(req, res, (result: any) => {
-      if (result instanceof Error) return reject(result);
-      return resolve(result);
+      if (result instanceof Error) {
+        console.error("Middleware error:", result);
+        return reject(result);
+      }
+      console.log("Middleware passed");
+      resolve(result);
     });
   });
 }
 
 export const config = {
   api: {
-    bodyParser: false, // disable Next.js built-in parser to use formidable
+    bodyParser: false,
   },
 };
 
@@ -33,63 +35,67 @@ const supabase = createClient(
 
 export default async function handler(req: any, res: any) {
   try {
+    console.log(`Incoming ${req.method} request`);
+
     await runMiddleware(req, res, cors);
 
     if (req.method === "OPTIONS") {
-      // CORS preflight
+      console.log("CORS preflight request");
       return res.status(204).end();
     }
 
     if (req.method !== "POST") {
+      console.warn(`Method ${req.method} not allowed`);
       res.setHeader("Allow", ["POST", "OPTIONS"]);
       return res.status(405).end(`Method ${req.method} Not Allowed`);
     }
 
     const form = new IncomingForm();
 
-    // Parse form data (file + fields)
     form.parse(req, async (err, fields, files) => {
       if (err) {
         console.error("Form parse error:", err);
         return res.status(400).json({ error: "Failed to parse form data" });
       }
+      console.log("Form parsed:", { fields, files });
 
       try {
         const file = files.file;
         const sessionId = fields.sessionId;
 
-        // Basic validation
         if (!file) {
+          console.error("No file uploaded");
           return res.status(400).json({ error: "File is required" });
         }
         if (!sessionId || typeof sessionId !== "string") {
+          console.error("Invalid or missing sessionId:", sessionId);
           return res.status(400).json({ error: "Valid sessionId is required" });
         }
 
-        // Get filepath (handle formidable v2+ and older versions)
         const filePath = (file as any).filepath || (file as any).path;
         if (!filePath) {
+          console.error("File path missing");
           return res.status(400).json({ error: "File path missing" });
         }
 
-        // Read file buffer asynchronously
+        console.log(`Reading file buffer from: ${filePath}`);
         const fileBuffer = await fs.readFile(filePath);
 
-        // Validate mimetype
         const mimeType = (file as any).mimetype || (file as any).type;
+        console.log("File MIME type:", mimeType);
         if (mimeType !== "application/pdf") {
-          return res.status(400).json({ error: "Only PDF files are allowed" });
+          console.error("Invalid file type:", mimeType);
+          return res.status(400).json({ error: "Only PDF files allowed" });
         }
 
-        // Sanitize filename to avoid path traversal
         const originalFilename = path.basename(
           (file as any).originalFilename || (file as any).name || "report.pdf"
         );
+        console.log("Sanitized filename:", originalFilename);
 
-        // Define storage file path
         const storageFilePath = `${sessionId}/${originalFilename}`;
+        console.log("Uploading to storage path:", storageFilePath);
 
-        // Upload file buffer to Supabase Storage
         const { error: uploadError } = await supabase.storage
           .from("ar-maturity-survey")
           .upload(storageFilePath, fileBuffer, {
@@ -100,37 +106,27 @@ export default async function handler(req: any, res: any) {
 
         if (uploadError) {
           console.error("Supabase upload error:", uploadError);
-          return res
-            .status(500)
-            .json({ error: "Failed to upload file to storage" });
+          return res.status(500).json({ error: "Upload to storage failed" });
         }
+        console.log("Upload succeeded");
 
-        // Clean up temp file after read
         await fs.unlink(filePath).catch((cleanupErr) => {
-          console.warn("Failed to cleanup temp file:", cleanupErr);
+          console.warn("Failed to clean temp file:", cleanupErr);
         });
 
-        // Get public URL of uploaded file
         const { data: publicURLData, error: urlError } = supabase.storage
           .from("ar-maturity-survey")
           .getPublicUrl(storageFilePath);
 
-        if (urlError) {
+        if (urlError || !publicURLData?.publicUrl) {
           console.error("Error getting public URL:", urlError);
-          return res
-            .status(500)
-            .json({ error: "Failed to get public URL for file" });
+          return res.status(500).json({ error: "Failed to get public URL" });
         }
+        console.log("Public URL:", publicURLData.publicUrl);
 
-        if (!publicURLData?.publicUrl) {
-          return res.status(500).json({ error: "Public URL is undefined" });
-        }
-
-        // Success response
         return res.status(200).json({
           message: "File uploaded successfully",
           publicUrl: publicURLData.publicUrl,
-          filePath: storageFilePath,
         });
       } catch (uploadErr) {
         console.error("Upload processing error:", uploadErr);
@@ -138,7 +134,7 @@ export default async function handler(req: any, res: any) {
       }
     });
   } catch (generalErr) {
-    console.error("Middleware or general error:", generalErr);
+    console.error("General server error:", generalErr);
     res.status(500).json({ error: "Internal server error" });
   }
 }
