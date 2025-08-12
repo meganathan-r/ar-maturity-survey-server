@@ -2,8 +2,8 @@ import Cors from "cors";
 
 // Initialize CORS middleware
 const cors = Cors({
-  origin: ["https://growfin.ai", "http://localhost:5173"],
-  methods: ["POST", "GET"],
+  origin: ["https://www.growfin.ai", "http://localhost:5173"],
+  methods: ["POST", "OPTIONS"],
 });
 
 // Helper to run middleware in Next.js / Vercel
