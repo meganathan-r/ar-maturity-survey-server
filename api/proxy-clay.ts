@@ -18,7 +18,10 @@ function runMiddleware(req, res, fn) {
 
 export default async function handler(req, res) {
   await runMiddleware(req, res, cors);
-
+  // Handle preflight OPTIONS request
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
   if (req.method === "POST") {
     try {
       const clayUrl =
