@@ -6,7 +6,7 @@ const cors = Cors({
   methods: ["POST", "OPTIONS"],
 });
 
-// Helper to run middleware in Next.js / Vercel
+// Helper to run on Vercel
 function runMiddleware(req, res, fn) {
   return new Promise((resolve, reject) => {
     fn(req, res, (result) => {

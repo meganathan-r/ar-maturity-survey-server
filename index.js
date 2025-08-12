@@ -1,12 +1,13 @@
 const express = require("express");
-const fetch = require("node-fetch"); 
+const fetch = require("node-fetch");
 const cors = require("cors");
-
+const { createClient } = require("@supabase/supabase-js");
+require("dotenv").config();
 const app = express();
 const PORT = 3000;
 
 const allowedOrigins = [
-  "https://growfin.ai", // production domain
+  "https://www.growfin.ai", // production domain
   "http://localhost:5173", // local dev domain
 ];
 
@@ -25,26 +26,55 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
-app.post("/proxy/clay", async (req, res) => {
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+app.use("/upload-pdf", express.raw({ type: "application/pdf", limit: "10mb" }));
+
+app.post("/upload-pdf", async (req, res) => {
   try {
-    const clayUrl =
-      "https://api.clay.com/v3/sources/webhook/pull-in-data-from-a-webhook-8a82cda5-b61a-4928-ae06-ba8fb644c231";
+    const sessionId = req.headers["x-session-id"];
+    if (!sessionId) {
+      return res.status(400).json({ error: "Missing x-session-id header" });
+    }
 
-    const response = await fetch(clayUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(req.body),
+    if (!req.body || !(req.body instanceof Buffer)) {
+      return res.status(400).json({ error: "Invalid PDF file" });
+    }
+
+    const fileBuffer = req.body;
+    const storageFilePath = `business-pdfs/${sessionId}.pdf`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("ar-maturity-survey")
+      .upload(storageFilePath, fileBuffer, {
+        cacheControl: "3600",
+        upsert: false,
+        contentType: "application/pdf",
+      });
+
+    if (uploadError) {
+      console.error(uploadError);
+      return res.status(500).json({ error: "Failed to upload PDF" });
+    }
+    const { data: signedUrlData, error: signedUrlError } =
+      await supabase.storage
+        .from("ar-maturity-survey")
+        .createSignedUrl(storageFilePath, 60 * 60 * 24 * 365); // valid for 1 year
+
+    if (signedUrlError) {
+      return res.status(500).json({ error: "Failed to generate signed URL" });
+    }
+
+    return res.json({
+      message: "PDF uploaded successfully",
+      url: signedUrlData.signedUrl,
     });
-
-    const data = await response.json();
-    console.log("send successfully");
-    // Forward Clay response back to frontend
-    res.status(response.status).json(data);
-  } catch (error) {
-    console.error("Proxy error:", error);
-    res.status(500).json({ error: "Proxy request failed" });
+  } catch (err) { 
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
